@@ -1,6 +1,9 @@
 class Usergroup < ActiveRecord::Base
   audited :allow_mass_assignment => true
   include Authorizable
+  extend FriendlyId
+  friendly_id :name
+  include Parameterizable::ByIdName
 
   validates_lengths_from_database
   before_destroy EnsureNotUsedBy.new(:hosts), :ensure_last_admin_group_is_not_deleted
@@ -38,14 +41,14 @@ class Usergroup < ActiveRecord::Base
 
   # This methods retrieves all users in a usergroup
   # Returns: Array of users
-  def all_users(group_list=[self], user_list=[])
+  def all_users(group_list = [self], user_list = [])
     retrieve_users_and_groups group_list, user_list
     user_list.sort.uniq
   end
 
   # This methods retrieves all usergroups in a usergroup
   # Returns: Array of unique usergroups
-  def all_usergroups(group_list=[self], user_list=[])
+  def all_usergroups(group_list = [self], user_list = [])
     retrieve_users_and_groups group_list, user_list
     group_list.sort.uniq
   end

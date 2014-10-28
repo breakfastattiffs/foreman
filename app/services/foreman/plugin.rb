@@ -33,8 +33,10 @@ module Foreman #:nodoc:
   class Plugin
 
     @registered_plugins = {}
+    @tests_to_skip = {}
     class << self
-      attr_reader :registered_plugins
+      attr_reader   :registered_plugins
+      attr_accessor :tests_to_skip
       private :new
 
       def def_field(*names)
@@ -132,14 +134,14 @@ module Foreman #:nodoc:
     #
     # name parameter can be: :top_menu or :admin_menu
     #
-    def menu(menu, name, options={})
+    def menu(menu, name, options = {})
       options.merge!(:parent => @parent) if @parent
       Menu::Manager.map(menu).item(name, options)
     end
 
-    alias :add_menu_item :menu
+    alias_method :add_menu_item, :menu
 
-    def sub_menu(menu, name, options={}, &block)
+    def sub_menu(menu, name, options = {}, &block)
       options.merge!(:parent => @parent) if @parent
       Menu::Manager.map(menu).sub_menu(name, options)
       current = @parent
@@ -157,6 +159,17 @@ module Foreman #:nodoc:
       Menu::Manager.map(menu).delete(item)
     end
 
+    def tests_to_skip(hash)
+      # Format is { "testclass" => [ "skip1", "skip2" ] }
+      hash.each do |testclass,tests|
+        if self.class.tests_to_skip[testclass].nil?
+          self.class.tests_to_skip[testclass] = tests
+        else
+          self.class.tests_to_skip[testclass] = self.class.tests_to_skip[testclass].push(tests).flatten.uniq
+        end
+      end
+    end
+
     def security_block(name, &block)
       @security_block = name
       self.instance_eval(&block)
@@ -167,7 +180,7 @@ module Foreman #:nodoc:
     # :options can contain :resource_type key which is the string of resource
     #   class to which this permissions is related, rest of options is passed
     #   to AccessControl
-    def permission(name, hash, options={})
+    def permission(name, hash, options = {})
       return false if pending_migrations
 
       options[:engine] ||= self.id.to_s

@@ -14,12 +14,12 @@ Foreman::AccessControl.map do |map|
                    :"api/v2/architectures" => [:index, :show]
     map.permission :create_architectures,
                    :architectures => [:new, :create],
-                   :"api/v1/architectures" => [:new, :create],
-                   :"api/v2/architectures" => [:new, :create]
+                   :"api/v1/architectures" => [:create],
+                   :"api/v2/architectures" => [:create]
     map.permission :edit_architectures,
                    :architectures => [:edit, :update],
-                   :"api/v1/architectures" => [:edit, :update],
-                   :"api/v2/architectures" => [:edit, :update]
+                   :"api/v1/architectures" => [:update],
+                   :"api/v2/architectures" => [:update]
     map.permission :destroy_architectures,
                    :architectures => [:destroy],
                    :"api/v1/architectures" => [:destroy],
@@ -315,7 +315,8 @@ Foreman::AccessControl.map do |map|
     tasks_ajax_actions = [:show]
 
     map.permission :view_hosts,    {:hosts => [:index, :show, :errors, :active, :out_of_sync, :disabled, :pending, :vm,
-                                      :externalNodes, :pxe_config, :storeconfig_klasses, :auto_complete_search, :bmc],
+                                      :externalNodes, :pxe_config, :storeconfig_klasses, :auto_complete_search, :bmc,
+                                      :runtime, :resources, :templates, :overview],
                                     :dashboard => [:OutOfSync, :errors, :active],
                                     :unattended => [:template, :provision],
                                      :"api/v1/hosts" => [:index, :show, :status],
@@ -356,7 +357,7 @@ Foreman::AccessControl.map do |map|
                                     :"api/v2/hosts" => [:destroy],
                                     :"api/v2/interfaces" => [:destroy]
                                   }
-    map.permission :build_hosts,   {:hosts => [:setBuild, :cancelBuild, :multiple_build, :submit_multiple_build],
+    map.permission :build_hosts,   {:hosts => [:setBuild, :cancelBuild, :multiple_build, :submit_multiple_build, :review_before_build],
                                     :tasks => tasks_ajax_actions,
                                     :"api/v2/tasks" => [:index] }
     map.permission :power_hosts,   {:hosts          => [:power],
@@ -517,7 +518,7 @@ Foreman::AccessControl.map do |map|
                                           :"api/v1/puppetclasses" => [:create],
                                           :"api/v2/puppetclasses" => [:create]
                                         }
-    map.permission :edit_puppetclasses,    {:puppetclasses => [:edit, :update],
+    map.permission :edit_puppetclasses,    {:puppetclasses => [:edit, :update, :override ],
                                           :"api/v1/puppetclasses" => [:update],
                                           :"api/v2/puppetclasses" => [:update],
                                           :"api/v1/lookup_keys" => [:create, :update, :destroy],

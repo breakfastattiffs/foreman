@@ -83,6 +83,7 @@ Foreman::Application.configure do |app|
                   ace/keybinding-emacs
                   diff
                   host_edit
+                  hosts
                   jquery.cookie
                   host_checkbox
                   nfs_visibility
@@ -112,7 +113,8 @@ Foreman::Application.configure do |app|
                   auth_source_ldap
                   subnets
                   hidden_values
-                 )
+                  password_strength)
+
   stylesheets = %w( )
 
   config.assets.precompile += javascript.map{|js| js + ".js"} + stylesheets + %w(background-size.htc)
@@ -138,7 +140,7 @@ Foreman::Application.configure do |app|
   # Serve plugin static assets if the application is configured to do so
   if config.serve_static_assets
     app.railties.engines.each do |engine|
-      if File.exists?("#{engine.root}/public/assets")
+      if File.exist?("#{engine.root}/public/assets")
         app.middleware.use ::ActionDispatch::Static, "#{engine.root}/public"
       end
     end

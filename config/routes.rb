@@ -17,7 +17,8 @@ Foreman::Application.routes.draw do
         get 'clone'
         get 'storeconfig_klasses'
         get 'externalNodes'
-        get 'setBuild'
+        get 'review_before_build'
+        put 'setBuild'
         get 'cancelBuild'
         get 'puppetrun'
         get 'pxe_config'
@@ -25,8 +26,12 @@ Foreman::Application.routes.draw do
         post 'environment_selected'
         put 'power'
         get 'console'
+        get 'overview'
         get 'bmc'
         get 'vm'
+        get 'runtime'
+        get 'resources'
+        get 'templates'
         put 'ipmi_boot'
         put 'disassociate'
       end
@@ -76,10 +81,10 @@ Foreman::Application.routes.draw do
       end
 
       constraints(:host_id => /[^\/]+/) do
-        resources :reports       ,:only => [:index, :show]
-        resources :audits        ,:only => :index
-        resources :facts         ,:only => :index, :controller => :fact_values
-        resources :puppetclasses ,:only => :index
+        resources :reports,       :only => [:index, :show]
+        resources :audits,        :only => :index
+        resources :facts,         :only => :index, :controller => :fact_values
+        resources :puppetclasses, :only => :index
       end
     end
 
@@ -156,7 +161,7 @@ Foreman::Application.routes.draw do
     get 'auto_complete_search', :on => :collection
   end
 
-  resources :puppetclasses, :except => [:show] do
+  resources :puppetclasses, :except => [:new, :create, :show] do
     collection do
       get 'import_environments'
       post 'obsolete_and_new'
@@ -164,6 +169,7 @@ Foreman::Application.routes.draw do
     end
     member do
       post 'parameters'
+      post 'override'
     end
     constraints(:id => /[^\/]+/) do
       resources :hosts
@@ -192,7 +198,6 @@ Foreman::Application.routes.draw do
     end
   end
 
-  resources :notices, :only => :destroy
   resources :audits do
     collection do
       get 'auto_complete_search'
@@ -209,7 +214,7 @@ Foreman::Application.routes.draw do
       collection do
         get 'login'
         post 'login'
-        get 'logout'
+        post 'logout'
         get 'extlogin'
         get 'extlogout'
         get 'auth_source_selected'
@@ -320,6 +325,12 @@ Foreman::Application.routes.draw do
         end
         resources :images, :except => [:show]
       end
+
+      resources :realms, :except => [:show] do
+        collection do
+          get 'auto_complete_search'
+        end
+      end
     end
 
     resources :subnets, :except => [:show] do
@@ -328,12 +339,6 @@ Foreman::Application.routes.draw do
         get 'import'
         post 'create_multiple'
         post 'freeip'
-      end
-    end
-
-    resources :realms, :except => [:show] do
-      collection do
-        get 'auto_complete_search'
       end
     end
 

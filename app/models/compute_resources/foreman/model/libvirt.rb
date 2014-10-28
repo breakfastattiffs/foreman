@@ -1,6 +1,8 @@
 module Foreman::Model
   class Libvirt < ComputeResource
 
+    include ComputeResourceConsoleCommon
+
     validates :url, :format => { :with => URI.regexp }
 
     # Some getters/setters for the attrs Hash
@@ -20,14 +22,14 @@ module Foreman::Model
       [:build, :image]
     end
 
-    def find_vm_by_uuid uuid
+    def find_vm_by_uuid(uuid)
       client.servers.get(uuid)
     rescue ::Libvirt::RetrieveError => e
       raise(ActiveRecord::RecordNotFound)
     end
 
     # we default to destroy the VM's storage as well.
-    def destroy_vm uuid, args = { }
+    def destroy_vm(uuid, args = { })
       find_vm_by_uuid(uuid).destroy({ :destroy_volumes => true }.merge(args))
     rescue ActiveRecord::RecordNotFound
       true
@@ -49,7 +51,7 @@ module Foreman::Model
       16*1024*1024*1024
     end
 
-    def test_connection options = {}
+    def test_connection(options = {})
       super
       errors[:url].empty? and hypervisor
     rescue => e
@@ -57,11 +59,11 @@ module Foreman::Model
       errors[:base] << e.message
     end
 
-    def new_nic attr={ }
+    def new_nic(attr = { })
       client.nics.new attr
     end
 
-    def new_volume attr={ }
+    def new_volume(attr = { })
       client.volumes.new(attrs.merge(:allocation => '0G'))
     end
 
@@ -83,7 +85,7 @@ module Foreman::Model
       template
     end
 
-    def new_vm attr={ }
+    def new_vm(attr = { })
       test_connection
       return unless errors.empty?
       opts = vm_instance_defaults.merge(attr.to_hash).symbolize_keys
@@ -104,7 +106,7 @@ module Foreman::Model
       vm
     end
 
-    def create_vm args = { }
+    def create_vm(args = { })
       vm = new_vm(args)
       create_volumes :prefix => vm.name, :volumes => vm.volumes, :backing_id => args[:image_id]
       vm.save
@@ -114,7 +116,7 @@ module Foreman::Model
       raise e
     end
 
-    def console uuid
+    def console(uuid)
       vm = find_vm_by_uuid(uuid)
       raise Foreman::Exception.new(N_("VM is not running!")) unless vm.ready?
       password = random_password
@@ -160,16 +162,14 @@ module Foreman::Model
         :memory     => 768*1024*1024,
         :nics       => [new_nic],
         :volumes    => [new_volume],
-        :display    => {
-                         :type => display_type.downcase,
-                         :listen => Setting[:libvirt_default_console_address],
+        :display    => { :type     => display_type.downcase,
+                         :listen   => Setting[:libvirt_default_console_address],
                          :password => random_password,
-                         :port => '-1'
-                       }
+                         :port     => '-1' }
       )
     end
 
-    def create_volumes args
+    def create_volumes(args)
       args[:volumes].each {|vol| validate_volume_capacity(vol)}
 
       # if using image creation, the first volume needs a backing disk set

@@ -3,6 +3,8 @@ require 'digest/sha1'
 
 class User < ActiveRecord::Base
   include Authorizable
+  extend FriendlyId
+  friendly_id :login
   include Foreman::ThreadSession::UserModel
   include Taxonomix
   include DirtyAssociations
@@ -16,7 +18,7 @@ class User < ActiveRecord::Base
   attr_protected :password_hash, :password_salt, :admin
   attr_accessor :password, :password_confirmation
   after_save :ensure_default_role
-  before_destroy EnsureNotUsedBy.new(:direct_hosts, :hostgroups), :ensure_hidden_users_are_not_deleted, :ensure_last_admin_is_not_deleted
+  before_destroy EnsureNotUsedBy.new(:direct_hosts), :ensure_hidden_users_are_not_deleted, :ensure_last_admin_is_not_deleted
 
   belongs_to :auth_source
   belongs_to :default_organization, :class_name => 'Organization'
@@ -26,22 +28,15 @@ class User < ActiveRecord::Base
   has_many :direct_hosts,      :class_name => 'Host',    :as => :owner
   has_many :usergroup_member,  :dependent => :destroy,   :as => :member
   has_many :user_roles,        :dependent => :destroy, :foreign_key => 'owner_id', :conditions => {:owner_type => self.to_s}
-  has_many :user_hostgroups
-  has_many :user_facts,        :dependent => :destroy
   has_many :cached_user_roles, :dependent => :destroy
-  has_many :facts,             :through => :user_facts,               :source => :fact_name
   has_many :cached_usergroups, :through => :cached_usergroup_members, :source => :usergroup
   has_many :cached_roles,      :through => :cached_user_roles,        :source => :role, :uniq => true
-  has_many :hostgroups,        :through => :user_hostgroups
   has_many :usergroups,        :through => :usergroup_member, :dependent => :destroy
   has_many :roles,             :through => :user_roles,       :dependent => :destroy
   has_many :filters,           :through => :cached_roles
   has_many :permissions,       :through => :filters
   has_many :cached_usergroup_members
 
-  has_and_belongs_to_many :notices,           :join_table => 'user_notices'
-  has_and_belongs_to_many :compute_resources, :join_table => "user_compute_resources"
-  has_and_belongs_to_many :domains,           :join_table => "user_domains"
   attr_name :login
 
   scope :except_admin, lambda {
@@ -62,9 +57,8 @@ class User < ActiveRecord::Base
   scope :visible,         lambda { except_hidden }
   scope :completer_scope, lambda { |opts| visible }
 
-  accepts_nested_attributes_for :user_facts, :reject_if => lambda { |a| a[:criteria].blank? }, :allow_destroy => true
-
-  validates :mail, :format => { :with => /\A([^@\s]+)@((?:[-a-z0-9]+\.)*[a-z]{2,})\Z/i },
+  validates :mail, :format => { :with => /\A(([\w!#\$%&\'\*\+\-\/=\?\^`\{\|\}~]+((\.\"[\w!#\$%&\'\*\+\-\/=\?\^`\{\|\}~\"\(\),:;<>@\[\\\] ]+(\.[\w!#\$%&\'\*\+\-\/=\?\^`\{\|\}~\"\(\),:;<>@\[\\\] ]+)*\")*\.[\w!#\$%&\'\*\+\-\/=\?\^`\{\|\}~]+)*)|(\"[\w !#\$%&\'\*\+\-\/=\?\^`\{\|\}~\"\(\),:;<>@\[\\\] ]+(\.[\w !#\$%&\'\*\+\-\/=\?\^`\{\|\}~\"\(\),:;<>@\[\\\] ]+)*\"))
+                                          @[a-z0-9]+((\.[a-z0-9]+)*|(\-[a-z0-9]+)*)*\z/ix },
                    :length => { :maximum => 60 },
                    :allow_blank => true
   validates :mail, :presence => true, :on => :update,
@@ -81,17 +75,18 @@ class User < ActiveRecord::Base
     end
   end
 
-  validates :login, :presence => true, :uniqueness => {:message => N_("already exists")},
+  validates :login, :presence => true, :uniqueness => {:case_sensitive => false, :message => N_("already exists")},
                     :format => {:with => /\A[[:alnum:]_\-@\.]*\Z/}, :length => {:maximum => 100}
   validates :auth_source_id, :presence => true
   validates :password_hash, :presence => true, :if => Proc.new {|user| user.manage_password?}
-  validates_confirmation_of :password,  :if => Proc.new {|user| user.manage_password?}, :unless => Proc.new {|user| user.password.empty?}
+  validates :password, :confirmation => true, :if => Proc.new {|user| user.manage_password?},
+                       :unless => Proc.new {|user| user.password.empty?}
   validates :firstname, :lastname, :format => {:with => name_format}, :length => {:maximum => 50}, :allow_nil => true
   validate :name_used_in_a_usergroup, :ensure_hidden_users_are_not_renamed, :ensure_hidden_users_remain_admin,
            :ensure_privileges_not_escalated, :default_organization_inclusion, :default_location_inclusion,
            :ensure_last_admin_remains_admin, :hidden_authsource_restricted
   before_validation :prepare_password, :normalize_mail
-  after_destroy Proc.new {|user| user.compute_resources.clear; user.domains.clear; user.hostgroups.clear}
+  before_save       :set_lower_login
 
   scoped_search :on => :login, :complete_value => :true
   scoped_search :on => :firstname, :complete_value => :true
@@ -100,6 +95,7 @@ class User < ActiveRecord::Base
   scoped_search :on => :admin, :complete_value => { :true => true, :false => false }, :ext_method => :search_by_admin
   scoped_search :on => :last_login_on, :complete_value => :true, :only_explicit => true
   scoped_search :in => :roles, :on => :name, :rename => :role, :complete_value => true
+  scoped_search :in => :roles, :on => :id, :rename => :role_id
   scoped_search :in => :cached_usergroups, :on => :name, :rename => :usergroup, :complete_value => true
 
   default_scope lambda {
@@ -128,8 +124,8 @@ class User < ActiveRecord::Base
     conditions = conditions.join(value ? ' OR ' : ' AND ')
 
     {
-        :include    => :cached_usergroups,
-        :conditions => sanitize_sql_for_conditions([conditions, value, value])
+      :include    => :cached_usergroups,
+      :conditions => sanitize_sql_for_conditions([conditions, value, value])
     }
   end
 
@@ -149,7 +145,7 @@ class User < ActiveRecord::Base
   alias_method :name, :to_label
 
   def to_param
-    "#{id}-#{login.parameterize}"
+    Parameterizable.parameterize("#{id}-#{login}")
   end
 
   def <=>(other)
@@ -252,6 +248,14 @@ class User < ActiveRecord::Base
     end
   end
 
+  def self.find_by_login(login)
+    find_by_lower_login(login.to_s.downcase)
+  end
+
+  def set_lower_login
+    self.lower_login = login.downcase unless login.blank?
+  end
+
   def matching_password?(pass)
     self.password_hash == encrypt_password(pass)
   end
@@ -298,18 +302,6 @@ class User < ActiveRecord::Base
     true
   end
 
-  # Indicates whether the user has host filtering enabled
-  # Returns : Boolean
-  def filtering?
-    filter_on_owner        or
-    compute_resources.any? or
-    domains.any?           or
-    hostgroups.any?        or
-    facts.any?             or
-    locations.any?         or
-    organizations.any?
-  end
-
   # user must be assigned all given roles in order to delegate them
   def can_assign?(roles)
     can_change_admin_flag? || roles.all? { |r| self.role_ids_was.include?(r) }
@@ -347,7 +339,7 @@ class User < ActiveRecord::Base
     send(taxonomies).each do |taxonomy|
       ids += taxonomy.subtree_ids
     end
-    return ids.uniq
+    ids.uniq
   end
 
   def location_and_child_ids
@@ -409,7 +401,7 @@ class User < ActiveRecord::Base
   end
 
   def normalize_mail
-    self.mail.gsub!(/\s/,'') unless mail.blank?
+    self.mail.strip! unless mail.blank?
   end
 
   protected

@@ -21,6 +21,10 @@ class AuthSourceLdap < AuthSource
   SERVER_TYPES = { :free_ipa => 'FreeIPA', :active_directory => 'Active Directory',
                    :posix    => 'POSIX'}
 
+  extend FriendlyId
+  friendly_id :name
+  include Parameterizable::ByIdName
+
   validates :host, :presence => true, :length => {:maximum => 60}, :allow_nil => true
   validates :attr_login, :attr_firstname, :attr_lastname, :attr_mail, :presence => true, :if => Proc.new { |auth| auth.onthefly_register? }
   validates :attr_login, :attr_firstname, :attr_lastname, :attr_mail, :length => {:maximum => 30}, :allow_nil => true
@@ -128,7 +132,7 @@ class AuthSourceLdap < AuthSource
     { :avatar => attr_photo }
   end
 
-  def attributes_values entry
+  def attributes_values(entry)
     Hash[required_ldap_attributes.merge(optional_ldap_attributes).map do |name, value|
       next if value.blank? || (entry[value].blank? && optional_ldap_attributes.keys.include?(name))
       if name.eql? :avatar
@@ -140,7 +144,7 @@ class AuthSourceLdap < AuthSource
     end]
   end
 
-  def store_avatar avatar
+  def store_avatar(avatar)
     avatar_path = "#{Rails.public_path}/assets/avatars"
     avatar_hash = Digest::SHA1.hexdigest(avatar)
     avatar_file = "#{avatar_path}/#{avatar_hash}.jpg"

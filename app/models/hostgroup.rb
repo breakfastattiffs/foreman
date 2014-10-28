@@ -1,5 +1,7 @@
 class Hostgroup < ActiveRecord::Base
   include Authorizable
+  extend FriendlyId
+  friendly_id :title
   include Taxonomix
   include HostCommon
   include NestedAncestryCommon
@@ -9,13 +11,11 @@ class Hostgroup < ActiveRecord::Base
   before_destroy EnsureNotUsedBy.new(:hosts)
   has_many :hostgroup_classes, :dependent => :destroy
   has_many :puppetclasses, :through => :hostgroup_classes
-  has_many :user_hostgroups, :dependent => :destroy
-  has_many :users, :through => :user_hostgroups
   validates :name, :format => { :with => /\A(\S+\s?)+\Z/, :message => N_("can't contain trailing white spaces.")}
   validates :root_pass, :allow_blank => true, :length => {:minimum => 8, :message => _('should be 8 characters or more')}
-  validate :title_and_lookup_key_length
-  has_many :group_parameters, :dependent => :destroy, :foreign_key => :reference_id
+  has_many :group_parameters, :dependent => :destroy, :foreign_key => :reference_id, :inverse_of => :hostgroup
   accepts_nested_attributes_for :group_parameters, :allow_destroy => true
+  include ParameterValidators
   has_many_hosts
   has_many :template_combinations, :dependent => :destroy
   has_many :config_templates, :through => :template_combinations
@@ -52,7 +52,7 @@ class Hostgroup < ActiveRecord::Base
 
     opts = 'hostgroups.id < 0'
     opts = "hostgroups.id IN(#{hostgroup_ids.join(',')})" unless hostgroup_ids.blank?
-    return {:conditions => opts}
+    {:conditions => opts}
   end
 
   if SETTINGS[:unattended]
@@ -101,7 +101,7 @@ class Hostgroup < ActiveRecord::Base
     ancestors.each do |hostgroup|
       groups += hostgroup.config_groups
     end
-    return groups.uniq
+    groups.uniq
   end
 
   # the environment used by #clases nees to be self.environment and not self.parent.environment
@@ -110,17 +110,17 @@ class Hostgroup < ActiveRecord::Base
     parent.classes(self.environment)
   end
 
-  def inherited_lookup_value key
+  def inherited_lookup_value(key)
     ancestors.reverse.each do |hg|
-      if(v = LookupValue.where(:lookup_key_id => key.id, :id => hg.lookup_values).first)
+      if (v = LookupValue.where(:lookup_key_id => key.id, :id => hg.lookup_values).first)
         return v.value, hg.to_label
       end
     end if key.path_elements.flatten.include?("hostgroup") && Setting["host_group_matchers_inheritance"]
-    return key.default_value, _("Default value")
+    [key.default_value, _("Default value")]
   end
 
   # returns self and parent parameters as a hash
-  def parameters include_source = false
+  def parameters(include_source = false)
     hash = {}
     ids = ancestor_ids
     ids << id unless new_record? or self.frozen?
@@ -129,7 +129,7 @@ class Hostgroup < ActiveRecord::Base
     groups = ids.size == 1 ? [self] : Hostgroup.includes(:group_parameters).sort_by_ancestry(Hostgroup.find(ids))
     groups.each do |hg|
       hg.group_parameters.each {|p| hash[p.name] = include_source ? {:value => p.value, :source => N_('hostgroup').to_sym, :safe_value => p.safe_value, :source_name => hg.title} : p.value }
-   end
+    end
 
     hash
   end
@@ -204,13 +204,6 @@ class Hostgroup < ActiveRecord::Base
   def used_taxonomy_ids(type)
     return [] if new_record? && parent_id.blank?
     Host::Base.where(:hostgroup_id => self.path_ids).pluck(type).compact.uniq
-  end
-
-  def title_and_lookup_key_length
-    max_length_for_name = self.send(:obj_type).length + 1
-    max_length_for_name += parent.title.length unless parent.nil?
-
-    errors.add(:name, _("maximum for this name is %s characters") % (255 - max_length_for_name)) if 255 - (name.length + max_length_for_name) < 0
   end
 
 end

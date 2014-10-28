@@ -11,8 +11,8 @@ class HostClassTest < ActiveSupport::TestCase
 
   test "should update hosts_count" do
     pc = puppetclasses(:two)
-    assert_difference "pc.hosts_count" do 
-      hc = HostClass.create(:puppetclass_id => pc.id, :host_id => hosts(:one).id)
+    assert_difference "pc.hosts_count" do
+      hc = HostClass.create(:puppetclass_id => pc.id, :host_id => FactoryGirl.create(:host).id)
       pc.reload
     end
   end

@@ -1,5 +1,7 @@
 class Medium < ActiveRecord::Base
   include Authorizable
+  extend FriendlyId
+  friendly_id :name
   include Taxonomix
   include ValidateOsFamily
   audited :allow_mass_assignment => true
@@ -54,7 +56,7 @@ class Medium < ActiveRecord::Base
   end
 
   # Write the image path, with a trailing "/" if required
-  def image_path= path
+  def image_path=(path)
     write_attribute :image_path, "#{path}#{"/" unless path =~ /\/$|^$/}"
   end
 

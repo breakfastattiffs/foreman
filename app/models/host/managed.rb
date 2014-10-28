@@ -8,9 +8,10 @@ class Host::Managed < Host::Base
   has_many :puppetclasses, :through => :host_classes
   belongs_to :hostgroup
   has_many :reports, :dependent => :destroy, :foreign_key => :host_id
-  has_many :host_parameters, :dependent => :destroy, :foreign_key => :reference_id
+  has_many :host_parameters, :dependent => :destroy, :foreign_key => :reference_id, :inverse_of => :host
   has_many :parameters, :dependent => :destroy, :foreign_key => :reference_id, :class_name => "HostParameter"
   accepts_nested_attributes_for :host_parameters, :allow_destroy => true
+  include ParameterValidators
   belongs_to :owner, :polymorphic => true
   belongs_to :compute_resource
   belongs_to :image
@@ -55,19 +56,19 @@ class Host::Managed < Host::Base
       :organization, :url_for_boot, :params, :info, :hostgroup, :compute_resource, :domain, :ip, :mac, :shortname, :architecture,
       :model, :certname, :capabilities, :provider, :subnet, :token, :location, :organization, :provision_method,
       :image_build?, :pxe_build?, :otp, :realm, :param_true?, :param_false?, :nil?, :indent, :primary_interface, :interfaces,
-      :has_primary_interface?
+      :has_primary_interface?, :bond_interfaces, :interfaces_with_identifier, :managed_interfaces
   end
 
   attr_reader :cached_host_params
 
   default_scope lambda {
-      org = Organization.current
-      loc = Location.current
-      conditions = {}
-      conditions[:organization_id] = org.subtree_ids if org
-      conditions[:location_id]     = loc.subtree_ids if loc
-      where(conditions)
-    }
+    org = Organization.current
+    loc = Location.current
+    conditions = {}
+    conditions[:organization_id] = org.subtree_ids if org
+    conditions[:location_id]     = loc.subtree_ids if loc
+    where(conditions)
+  }
 
   scope :recent,      lambda { |*args| {:conditions => ["last_report > ?", (args.first || (Setting[:puppet_interval] + 5).minutes.ago)]} }
   scope :out_of_sync, lambda { |*args| {:conditions => ["last_report < ? and enabled != ?", (args.first || (Setting[:puppet_interval] + 5).minutes.ago), false]} }
@@ -297,7 +298,7 @@ class Host::Managed < Host::Base
   end
 
   # returns a configuration template (such as kickstart) to a given host
-  def configTemplate opts = {}
+  def configTemplate(opts = {})
     opts[:kind]               ||= "provision"
     opts[:operatingsystem_id] ||= operatingsystem_id
     opts[:hostgroup_id]       ||= hostgroup_id
@@ -367,6 +368,10 @@ class Host::Managed < Host::Base
       param["ip"]  = ip
       param["mac"] = mac
     end
+    param['subnets'] = (([subnet] + interfaces.map(&:subnet)).compact.map(&:to_enc)).uniq
+    param['interfaces'] =
+        [Nic::Managed.new(:ip => ip, :mac => mac, :identifier => primary_interface, :subnet => subnet).to_enc] +
+        interfaces.map(&:to_enc)
     param.update self.params
 
     # Parse ERB values contained in the parameters
@@ -394,7 +399,7 @@ class Host::Managed < Host::Base
     @cached_host_params = nil
   end
 
-  def host_inherited_params include_source = false
+  def host_inherited_params(include_source = false)
     hp = {}
     # read common parameters
     CommonParameter.all.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('common').to_sym, :safe_value => p.safe_value} : p.value] }
@@ -419,7 +424,7 @@ class Host::Managed < Host::Base
   end
 
   # JSON is auto-parsed by the API, so these should be in the right format
-  def self.import_host_and_facts hostname, facts, certname = nil, proxy_id = nil
+  def self.import_host_and_facts(hostname, facts, certname = nil, proxy_id = nil)
     raise(::Foreman::Exception.new("Invalid Facts, must be a Hash")) unless facts.is_a?(Hash)
     raise(::Foreman::Exception.new("Invalid Hostname, must be a String")) unless hostname.is_a?(String)
 
@@ -440,7 +445,7 @@ class Host::Managed < Host::Base
 
     host.save(:validate => false) if host.new_record?
     state = host.import_facts(facts)
-    return host, state
+    [host, state]
   end
 
   def attributes_to_import_from_facts
@@ -474,7 +479,7 @@ class Host::Managed < Host::Base
 
   # this method accepts a puppets external node yaml output and generate a node in our setup
   # it is assumed that you already have the node (e.g. imported by one of the rack tasks)
-  def importNode nodeinfo
+  def importNode(nodeinfo)
     myklasses= []
     # puppet classes
     nodeinfo["classes"].each do |klass|
@@ -502,7 +507,7 @@ class Host::Managed < Host::Base
 
       unless (hp = self.host_parameters.create(:name => param, :value => value))
         logger.warn "Failed to import #{param}/#{value} for #{name}: #{hp.errors.full_messages.join(", ")}"
-        $stdout.puts $!
+        $stdout.puts $ERROR_INFO
       end
     end
 
@@ -513,7 +518,7 @@ class Host::Managed < Host::Base
   # counts each association of a given host
   # e.g. how many hosts belongs to each os
   # returns sorted hash
-  def self.count_distribution association
+  def self.count_distribution(association)
     output = []
     data = group("#{Host.table_name}.#{association}_id").reorder('').count
     associations = association.to_s.camelize.constantize.where(:id => data.keys).all
@@ -531,7 +536,7 @@ class Host::Managed < Host::Base
   # TODO: Merge these two into one method
   # e.g. how many hosts belongs to each os
   # returns sorted hash
-  def self.count_habtm association
+  def self.count_habtm(association)
     counter = Host::Managed.joins(association.tableize.to_sym).group("#{association.tableize.to_sym}.id").reorder('').count
     #Puppetclass.find(counter.keys.compact)...
     association.camelize.constantize.find(counter.keys.compact).map {|i| {:label=>i.to_label, :data =>counter[i.id]}}
@@ -568,22 +573,6 @@ class Host::Managed < Host::Base
 
   def set_ip_address
     self.ip ||= subnet.unused_ip if subnet and SETTINGS[:unattended] and (new_record? or managed?)
-  end
-
-  # returns a rundeck output
-  def rundeck
-    rdecktags = puppetclasses_names.map{|k| "class=#{k}"}
-    unless self.params["rundeckfacts"].empty?
-      rdecktags += self.params["rundeckfacts"].gsub(/\s+/, '').split(',').map { |rdf| "#{rdf}=" + (facts_hash[rdf] || "undefined") }
-    end
-    { name => { "description" => comment, "hostname" => name, "nodename" => name,
-      "Environment" => environment.name,
-      "osArch" => arch.name, "osFamily" => os.family, "osName" => os.name,
-      "osVersion" => os.release, "tags" => rdecktags, "username" => self.params["rundeckuser"] || "root" }
-    }
-  rescue => e
-    logger.warn "Failed to fetch rundeck info for #{to_s}: #{e}"
-    {}
   end
 
   def associate!(cr, vm)
@@ -793,6 +782,41 @@ class Host::Managed < Host::Base
     managed && pxe_build? && build?
   end
 
+  def available_template_kinds(provisioning = nil)
+    kinds = if provisioning == 'image'
+              cr     = ComputeResource.find_by_id(self.compute_resource_id)
+              images = cr.try(:images)
+              if images.blank?
+                [TemplateKind.find('finish')]
+              else
+                uuid       = self.compute_attributes.cr.image_param_name
+                image_kind = images.find_by_uuid(uuid).try(:user_data) ? 'user_data' : 'finish'
+                [TemplateKind.find(image_kind)]
+              end
+            else
+              TemplateKind.all
+            end
+
+    kinds.map do |kind|
+      ConfigTemplate.find_template({ :kind               => kind.name,
+                                     :operatingsystem_id => operatingsystem_id,
+                                     :hostgroup_id       => hostgroup_id,
+                                     :environment_id     => environment_id
+                                   })
+    end.compact
+  end
+
+  def render_template(template)
+    @host = self
+    unattended_render(template)
+  end
+
+  def build_status
+    build_status = HostBuildStatus.new(self)
+    build_status.check_all_statuses
+    build_status
+  end
+
   private
 
   def lookup_value_match
@@ -836,7 +860,7 @@ class Host::Managed < Host::Base
     errors.add(:name, _("must not include periods")) if ( managed? && shortname.include?(".") && SETTINGS[:unattended] )
   end
 
-  def assign_hostgroup_attributes attrs = []
+  def assign_hostgroup_attributes(attrs = [])
     attrs.each do |attr|
       value = hostgroup.send("inherited_#{attr}")
       self.send("#{attr}=", value) unless send(attr).present?
@@ -877,7 +901,7 @@ class Host::Managed < Host::Base
   # converts a name into ip address using DNS.
   # if we are managing DNS, we can query the correct DNS server
   # otherwise, use normal systems dns settings to resolv
-  def to_ip_address name_or_ip
+  def to_ip_address(name_or_ip)
     return name_or_ip if name_or_ip =~ Net::Validations::IP_REGEXP
     if dns_ptr_record
       lookup = dns_ptr_record.dns_lookup(name_or_ip)

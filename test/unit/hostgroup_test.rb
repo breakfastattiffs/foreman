@@ -27,7 +27,7 @@ class HostgroupTest < ActiveSupport::TestCase
     assert !other_host_group.save
   end
 
-  def setup_user operation
+  def setup_user(operation)
     super operation, "hostgroups"
   end
 
@@ -35,14 +35,16 @@ class HostgroupTest < ActiveSupport::TestCase
     # creates a 3 level hirecy, each one with his own parameters
     # and overrides.
     pid = Time.now.to_i
-    assert (top = Hostgroup.create(:name => "topA", :group_parameters_attributes => {
-      pid += 1=>{"name"=>"topA", "value"=>"1", :nested => ""},
-      pid += 1=>{"name"=>"topB", "value"=>"1", :nested => ""},
-      pid += 1=>{"name"=>"topC", "value"=>"1", :nested => ""},
-    }))
-    assert (second = Hostgroup.create(:name => "SecondA", :parent_id => top.id, :group_parameters_attributes => {
-      pid += 1 =>{"name"=>"topA", "value"=>"2", :nested => ""},
-      pid += 1 =>{"name"=>"secondA", "value"=>"2", :nested => ""}}))
+    top = Hostgroup.new(:name => "topA",
+                        :group_parameters_attributes => { pid += 1 => {"name" => "topA", "value" => "1", :nested => ""},
+                                                          pid += 1 => {"name" => "topB", "value" => "1", :nested => ""},
+                                                          pid += 1 => {"name" => "topC", "value" => "1", :nested => ""}})
+    assert top.save
+
+    second = Hostgroup.new(:name => "SecondA", :parent_id => top.id,
+                           :group_parameters_attributes => { pid += 1 => {"name" => "topA", "value" => "2", :nested => ""},
+                                                             pid += 1 => {"name" => "secondA", "value" => "2", :nested => ""}})
+    assert second.save
 
     assert second.parameters.include? "topA"
     assert_equal "2", second.parameters["topA"]
@@ -53,9 +55,10 @@ class HostgroupTest < ActiveSupport::TestCase
     assert second.parameters.include? "secondA"
     assert_equal "2", second.parameters["secondA"]
 
-    assert (third = Hostgroup.create(:name => "ThirdA", :parent_id => second.id, :group_parameters_attributes => {
-      pid += 1 =>{"name"=>"topB", "value"=>"3", :nested => ""},
-      pid += 1 =>{"name"=>"topA", "value"=>"3", :nested => ""}}))
+    third = Hostgroup.new(:name => "ThirdA", :parent_id => second.id,
+                          :group_parameters_attributes => { pid += 1 => {"name"=>"topB", "value"=>"3", :nested => ""},
+                                                            pid += 1 => {"name"=>"topA", "value"=>"3", :nested => ""}})
+    assert third.save
 
     assert third.parameters.include? "topA"
     assert_equal "3", third.parameters["topA"]
@@ -305,17 +308,30 @@ class HostgroupTest < ActiveSupport::TestCase
 
   test "hostgroup name can't be too big to create lookup value matcher over 255 characters" do
     parent = FactoryGirl.create(:hostgroup)
-    min_lookupvalue_length = "hostgroup=".length + parent.title.length
+    min_lookupvalue_length = "hostgroup=".length + parent.title.length + 1
     hostgroup = Hostgroup.new :parent => parent, :name => 'a' * 256
     refute_valid hostgroup
-    assert_equal _("maximum for this name is %s characters") % (255 -  min_lookupvalue_length), hostgroup.errors[:name].first
+    assert_equal "is too long (maximum is %s characters)" % (255 -  min_lookupvalue_length), hostgroup.errors[:name].first
   end
 
   test "hostgroup name can be up to 255 characters" do
     parent = FactoryGirl.create(:hostgroup)
-    min_lookupvalue_length = "hostgroup=".length + parent.title.length
+    min_lookupvalue_length = "hostgroup=".length + parent.title.length + 1
     hostgroup = Hostgroup.new :parent => parent, :name => 'a' * (255 - min_lookupvalue_length)
     assert_valid hostgroup
+  end
+
+  test "hostgroup should not save when matcher is exactly 256 characters" do
+    parent = FactoryGirl.create(:hostgroup, :name => 'a' * 244)
+    hostgroup = Hostgroup.new :parent => parent, :name => 'b'
+    refute_valid hostgroup
+    assert_equal _("is too long (maximum is 0 characters)"),  hostgroup.errors[:name].first
+  end
+
+  test "to_param" do
+    parent = FactoryGirl.create(:hostgroup, :name => 'a')
+    hostgroup = Hostgroup.new(:parent => parent, :name => 'b')
+    assert_equal "#{hostgroup.id}-a-b",  hostgroup.to_param
   end
 
 end

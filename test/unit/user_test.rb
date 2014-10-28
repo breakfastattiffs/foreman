@@ -36,22 +36,43 @@ class UserTest < ActiveSupport::TestCase
     ug = Usergroup.create :name => "foo"
     u  = User.new :auth_source => auth_sources(:one), :login => "foo", :mail  => "foo@bar.com"
 
-    assert !u.valid?
+    refute u.valid?
+  end
+
+  test "duplicate login should be detected case insensitively" do
+    u1 = User.new :auth_source => auth_sources(:one), :login => "UsEr", :mail  => "foo1@bar.com", :password => "foo"
+    u2 = User.new :auth_source => auth_sources(:one), :login => "user", :mail  => "foo2@bar.com", :password => "foo"
+    assert u1.save
+    refute u2.save
+    assert u2.errors.messages[:login].include? "already exists"
+  end
+
+  test "user should login case insensitively" do
+    user = User.new :auth_source => auth_sources(:internal), :login => "user", :mail  => "foo1@bar.com", :password => "foo"
+    assert user.save!
+    assert_equal user, User.try_to_login("USER", "foo")
+  end
+
+  test "user login should be case aware" do
+    user = User.new :auth_source => auth_sources(:one), :login => "User", :mail  => "foo1@bar.com", :password => "foo"
+    assert user.save
+    assert_equal user.login, "User"
+    assert_equal user.lower_login, "user"
   end
 
   test "mail should have format" do
     u = User.new :auth_source => auth_sources(:one), :login => "foo", :mail => "bar"
-    assert !u.valid?
+    refute u.valid?
   end
 
   test "login size should not exceed the 100 characters" do
     u = User.new :auth_source => auth_sources(:one), :login => "a" * 101, :mail => "foo@bar.com"
-    assert !u.save
+    refute u.save
   end
 
   test "firstname should have the correct format" do
     @user.firstname = "The Riddle?"
-    assert !@user.save
+    refute @user.save
 
     @user.firstname = "C_r'a-z.y( )<,Na=me;>"
     assert @user.save
@@ -62,7 +83,7 @@ class UserTest < ActiveSupport::TestCase
 
   test "lastname should have the correct format" do
     @user.lastname = "it's the JOKER$$$"
-    assert !@user.save
+    refute @user.save
 
     @user.lastname = "C_r'a-z.y( )<,Na=me;>"
     assert @user.save
@@ -73,18 +94,18 @@ class UserTest < ActiveSupport::TestCase
 
   test "firstname should not exceed the 50 characters" do
     @user.firstname = "a" * 51
-    assert !@user.save
+    refute @user.save
   end
 
   test "lastname should not exceed the 50 characters" do
     @user.firstname = "a" * 51
-    assert !@user.save
+    refute @user.save
   end
 
   test "mail should not exceed the 60 characters" do
     u = User.create :auth_source => auth_sources(:one), :login => "foo"
     u.mail = "foo" * 20 + "@bar.com"
-    assert !u.save
+    refute u.save
   end
 
   test "to_label method should return a firstname and the lastname" do
@@ -134,7 +155,7 @@ class UserTest < ActiveSupport::TestCase
     assert_equal u, User.try_to_login(u.login, 'password')
   end
 
-  def setup_user operation
+  def setup_user(operation)
     super operation, "users"
   end
 
@@ -144,7 +165,7 @@ class UserTest < ActiveSupport::TestCase
     record.password_hash = "asd"
     assert record.save
     assert record.valid?
-    assert !record.new_record?
+    refute record.new_record?
   end
 
   test "non-admin user with create permissions should not be able to create admin" do
@@ -299,8 +320,23 @@ class UserTest < ActiveSupport::TestCase
   end
 
   test "email with whitespaces should be stripped" do
-    u = User.create! :auth_source => auth_sources(:one), :login => "boo", :mail => "b oo@localhost "
-    assert_equal u.mail, "boo@localhost"
+    user = User.create! :auth_source => auth_sources(:one), :login => "boo", :mail => " boo@localhost "
+    assert_equal user.mail, "boo@localhost"
+  end
+
+  test "email should not have special characters outside of quoted string format" do
+    user = User.new :auth_source => auth_sources(:one), :login => "boo", :mail => "specialchars():;@example.com"
+    refute user.save
+  end
+
+  test "email with special characters in quoted string format allowed" do
+    user = User.new :auth_source => auth_sources(:one), :login => "boo", :mail => '"specialchars():;"@example.com'
+    assert user.save
+  end
+
+  test "email should not have consecutive dot characters" do
+    user = User.new :auth_source => auth_sources(:one), :login => "boo", :mail => "dots..dots@example.com"
+    refute user.save
   end
 
   test "use that can change admin flag #can_assign? any role" do
@@ -464,7 +500,7 @@ class UserTest < ActiveSupport::TestCase
     assert_equal count, User.count
 
     # not existing user without auth source specified
-    assert !User.find_or_create_external_user({:login => 'not_existing_user'}, nil)
+    refute User.find_or_create_external_user({:login => 'not_existing_user'}, nil)
     assert_equal count, User.count
 
     # not existing user with existing AuthSource
@@ -715,4 +751,13 @@ class UserTest < ActiveSupport::TestCase
     User.complete_for('login = ').each { |ac| refute_match users(:anonymous).login, ac }
   end
 
+  test 'can search users by role id' do
+    # Setup role and assign to user
+    role = Role.find_or_create_by_name(:name => "foobar")
+    user = users(:one)
+    user.role_ids = [role.id]
+
+    users = User.search_for("role_id = #{role.id}")
+    assert (users.include? user)
+  end
 end

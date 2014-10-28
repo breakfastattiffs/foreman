@@ -20,13 +20,13 @@ module FogExtensions
         attributes[:memory_size].to_i * 1024
       end
 
-      def memory= mem
+      def memory=(mem)
         attributes[:memory_size] = mem.to_i / 1024 if mem
       end
 
       def reset
-        poweroff
-        start
+        # @TODO: change to poweroff && start upon fix for LibVirt on Fog gem.
+        service.vm_action(uuid, :reset)
       end
 
       def vm_description
