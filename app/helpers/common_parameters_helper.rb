@@ -9,7 +9,6 @@ module CommonParametersHelper
     _("Parameters that would be associated with hosts in this %s") % (type)
   end
 
-
   def parameter_value_field(value)
     source_name = value[:source_name] ? "(#{value[:source_name]})" : nil
     content_tag :div, :class => "form-group condensed" do
