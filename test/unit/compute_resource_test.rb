@@ -102,4 +102,28 @@ class ComputeResourceTest < ActiveSupport::TestCase
     assert_equal [taxonomies(:location1).id], compute_resources(:one).used_or_selected_location_ids
   end
 
+  test "user_data_supported?" do
+    refute compute_resources(:one).user_data_supported?
+    assert compute_resources(:ec2).user_data_supported?
+  end
+
+  test "invalid if provider is set to empty string" do
+    cr = compute_resources(:mycompute)
+    cr.provider = ''
+    refute_valid cr, :provider, "can't be blank"
+    refute_valid cr, :provider, "is not included in the list"
+  end
+
+  test "invalid if provider is set to non-existant provider" do
+    cr = compute_resources(:mycompute)
+    cr.provider = 'notrealprovider'
+    refute_valid cr, :provider, "is not included in the list"
+  end
+
+  test "invalid if provider is changed on update" do
+    cr = compute_resources(:ovirt)
+    cr.provider = 'Libvirt'
+    refute_valid cr, :provider, "cannot be changed"
+  end
+
 end

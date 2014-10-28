@@ -124,7 +124,7 @@ module Foreman::Model
       cluster_networks = networks({:cluster_id => cluster_id})
     end
 
-    def available_storage_domains
+    def available_storage_domains(storage_domain=nil)
       storage_domains
     end
 
@@ -221,7 +221,7 @@ module Foreman::Model
     end
 
     def associated_host(vm)
-      Host.authorized(:view_hosts, Host).where(:mac => vm.mac).first
+      Host.authorized(:view_hosts, Host).where(:mac => vm.interfaces.map { |i| i.mac }).first
     end
 
     def self.provider_friendly_name

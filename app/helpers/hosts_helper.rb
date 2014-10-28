@@ -60,7 +60,7 @@ module HostsHelper
       short = s_("OK|O")
     end
     content_tag(:span, short, {:rel => "twipsy", :class => "label label-light " + style, :"data-original-title" => _(label)} ) +
-      link_to(trunc("  #{record}",32), host_path(record))
+      link_to(trunc("  #{record}"), host_path(record))
   end
 
   def days_ago time
@@ -143,7 +143,7 @@ module HostsHelper
 
   def reports_show
     return unless @host.reports.size > 0
-    form_tag @host, :id => 'days_filter', :method => :get, :class=>"form form-inline" do
+    form_tag @host, :id => 'days_filter', :method => :get, :class => "form form-inline" do
       content_tag(:span, (_("Reports from the last %{days} days - %{count} reports found") %
         { :days  => select(nil, 'range', 1..days_ago(@host.reports.first.reported_at),
                     {:selected => @range}, {:class=>"col-md-1 form-control", :style=>"float:none;", :onchange =>"$('#days_filter').submit();$(this).disabled();"}),
@@ -316,5 +316,17 @@ module HostsHelper
       data[subnet.id] = { :ipam => subnet.ipam? }
     end
     data
+  end
+
+  def remove_interface_link(f)
+    remove_child_link('x', f, {:rel => 'twipsy',
+                               :'data-title' => _('remove network interface'),
+                               :'data-placement' => 'left',
+                               :class => 'fr label label-danger'})
+  end
+
+  def link_status(f)
+    return '' if f.object.new_record?
+    '(' + (f.object.link ? _('Up') : _('Down')) + ')'
   end
 end

@@ -64,23 +64,32 @@ Foreman::AccessControl.map do |map|
                    :"api/v2/bookmarks" => [:destroy]
   end
 
+  map.security_block :compute_profiles do |map|
+    map.permission :view_compute_profiles, { :compute_profiles          => [:index, :show, :auto_complete_search],
+                                             :"api/v2/compute_profiles" => [:index, :show] }
+    map.permission :create_compute_profiles, { :compute_profiles        => [:new, :create],
+                                             :"api/v2/compute_profiles" => [:create] }
+    map.permission :edit_compute_profiles, { :compute_profiles          => [:edit, :update],
+                                             :"api/v2/compute_profiles" => [:update] }
+    map.permission :destroy_compute_profiles, { :compute_profiles          => [:destroy],
+                                                :"api/v2/compute_profiles" => [:destroy] }
+  end
+
   map.security_block :compute_resources do |map|
     ajax_actions = [:test_connection]
     map.permission :view_compute_resources,    {:compute_resources => [:index, :show, :auto_complete_search, :ping, :available_images],
                                                 :"api/v1/compute_resources" => [:index, :show],
-                                                :"api/v2/compute_resources" => [:index, :show, :available_images, :available_clusters, :available_networks,
-                                                                                :available_storage_domains]
+                                                :"api/v2/compute_resources" => [:index, :show, :available_images, :available_clusters, :available_folders,
+                                                                                :available_networks, :available_resource_pools, :available_storage_domains]
     }
     map.permission :create_compute_resources,  {:compute_resources => [:new, :create].push(*ajax_actions),
                                                 :"api/v1/compute_resources" => [:create],
                                                 :"api/v2/compute_resources" => [:create]
     }
     map.permission :edit_compute_resources,    {:compute_resources => [:edit, :update].push(*ajax_actions),
-                                                :compute_profiles => [:new, :create, :edit, :update, :destroy, :index, :show, :auto_complete_search],
                                                 :compute_attributes => [:new, :create, :edit, :update],
                                                 :"api/v1/compute_resources" => [:update],
                                                 :"api/v2/compute_resources" => [:update],
-                                                :"api/v2/compute_profiles" => [:index, :show, :create, :update, :destroy],
                                                 :"api/v2/compute_attributes" => [:create, :update]
     }
     map.permission :destroy_compute_resources, {:compute_resources => [:destroy],
@@ -253,7 +262,7 @@ Foreman::AccessControl.map do |map|
 
   map.security_block :hostgroups do |map|
     ajax_actions = [:architecture_selected, :domain_selected, :environment_selected, :medium_selected, :os_selected,
-      :use_image_selected]
+      :use_image_selected, :process_hostgroup, :current_parameters, :puppetclass_parameters]
     host_ajax_actions = [:process_hostgroup]
     pc_ajax_actions = [:parameters]
 
@@ -311,12 +320,15 @@ Foreman::AccessControl.map do |map|
                                     :unattended => [:template, :provision],
                                      :"api/v1/hosts" => [:index, :show, :status],
                                      :"api/v2/hosts" => [:index, :show, :status],
-                                     :"api/v2/interfaces" => [:index, :show]
+                                     :"api/v2/interfaces" => [:index, :show],
+                                     :locations =>  [:mismatches],
+                                     :organizations =>  [:mismatches]
                                   }
     map.permission :create_hosts,  {:hosts => [:new, :create, :clone].push(*ajax_actions),
                                     :compute_resources => cr_ajax_actions,
                                     :puppetclasses => pc_ajax_actions,
                                     :subnets => subnets_ajax_actions,
+                                    :interfaces => [:new],
                                      :"api/v1/hosts" => [:create],
                                      :"api/v2/hosts" => [:create],
                                      :"api/v2/interfaces" => [:create],
@@ -333,6 +345,7 @@ Foreman::AccessControl.map do |map|
                                     :compute_resources_vms => [:associate],
                                     :puppetclasses => pc_ajax_actions,
                                     :subnets => subnets_ajax_actions,
+                                    :interfaces => [:new],
                                     :"api/v1/hosts" => [:update],
                                     :"api/v2/hosts" => [:update, :disassociate],
                                     :"api/v2/interfaces" => [:create, :update, :destroy],
@@ -391,7 +404,7 @@ Foreman::AccessControl.map do |map|
 
   if SETTINGS[:locations_enabled]
     map.security_block :locations do |map|
-      map.permission :view_locations, {:locations =>  [:index, :show, :auto_complete_search, :mismatches],
+      map.permission :view_locations, {:locations =>  [:index, :show, :auto_complete_search],
                                        :"api/v1/locations" => [:index, :show],
                                        :"api/v2/locations" => [:index, :show]
       }
@@ -590,7 +603,7 @@ Foreman::AccessControl.map do |map|
 
   if SETTINGS[:organizations_enabled]
     map.security_block :organizations do |map|
-      map.permission :view_organizations, {:organizations =>  [:index, :show, :auto_complete_search, :mismatches],
+      map.permission :view_organizations, {:organizations =>  [:index, :show, :auto_complete_search],
                                            :"api/v1/organizations" => [:index, :show],
                                            :"api/v2/organizations" => [:index, :show]
                                          }

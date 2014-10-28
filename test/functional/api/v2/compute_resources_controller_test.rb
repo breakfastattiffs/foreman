@@ -157,7 +157,7 @@ class Api::V2::ComputeResourcesControllerTest < ActionController::TestCase
 
     Foreman::Model::Vmware.any_instance.stubs(:available_networks).returns([network])
 
-    get :available_networks, { :id => compute_resources(:ovirt).to_param, :cluster_id => '123-456-789' }
+    get :available_networks, { :id => compute_resources(:vmware).to_param, :cluster_id => '123-456-789' }
     assert_response :success
     available_networks = ActiveSupport::JSON.decode(@response.body)
     assert !available_networks.empty?
@@ -170,10 +170,40 @@ class Api::V2::ComputeResourcesControllerTest < ActionController::TestCase
 
     Foreman::Model::Vmware.any_instance.stubs(:available_clusters).returns([cluster])
 
-    get :available_clusters, { :id => compute_resources(:ovirt).to_param }
+    get :available_clusters, { :id => compute_resources(:vmware).to_param }
     assert_response :success
     available_clusters = ActiveSupport::JSON.decode(@response.body)
     assert !available_clusters.empty?
+  end
+
+  test "should get available vmware folders" do
+    folder = Object.new
+    folder.stubs(:name).returns('vmware_folder')
+    folder.stubs(:id).returns('group-12345')
+    folder.stubs(:datacenter).returns('DC-1')
+    folder.stubs(:parent).returns('cluster-12345')
+    folder.stubs(:path).returns('/Datacenters/DC-1/vm/cluster-12345/vmware_folder')
+    folder.stubs(:type).returns('vm')
+
+    Foreman::Model::Vmware.any_instance.stubs(:available_folders).returns([folder])
+
+    get :available_folders, { :id => compute_resources(:vmware).to_param, :cluster_id => '123-456-789' }
+    assert_response :success
+    available_folders = ActiveSupport::JSON.decode(@response.body)
+    assert !available_folders.empty?
+  end
+
+  test "should get available vmware resource pools" do
+    resource_pool = Object.new
+    resource_pool.stubs(:name).returns('Resource Pool 1')
+    resource_pool.stubs(:id).returns('resgroup-12345')
+
+    Foreman::Model::Vmware.any_instance.stubs(:available_resource_pools).returns([resource_pool])
+
+    get :available_resource_pools, { :id => compute_resources(:vmware).to_param, :cluster_id => '123-456-789' }
+    assert_response :success
+    available_resource_pools = ActiveSupport::JSON.decode(@response.body)
+    assert !available_resource_pools.empty?
   end
 
   test "should get available vmware storage domains" do
@@ -181,12 +211,25 @@ class Api::V2::ComputeResourcesControllerTest < ActionController::TestCase
     storage_domain.stubs(:name).returns('test_vmware_cluster')
     storage_domain.stubs(:id).returns('my11-test35-uuid99')
 
-    Foreman::Model::Vmware.any_instance.stubs(:available_storage_domains).returns([storage_domain])
+    Foreman::Model::Vmware.any_instance.expects(:available_storage_domains).with(nil).returns([storage_domain])
 
-    get :available_storage_domains, { :id => compute_resources(:ovirt).to_param }
+    get :available_storage_domains, { :id => compute_resources(:vmware).to_param }
     assert_response :success
     available_storage_domains = ActiveSupport::JSON.decode(@response.body)
     assert !available_storage_domains.empty?
+  end
+
+  test "should get specific vmware storage domain" do
+    storage_domain = Object.new
+    storage_domain.stubs(:name).returns('test_vmware_cluster')
+    storage_domain.stubs(:id).returns('my11-test35-uuid99')
+
+    Foreman::Model::Vmware.any_instance.expects(:available_storage_domains).with('test_vmware_cluster').returns([storage_domain])
+
+    get :available_storage_domains, { :id => compute_resources(:vmware).to_param, :storage_domain => 'test_vmware_cluster' }
+    assert_response :success
+    available_storage_domains = ActiveSupport::JSON.decode(@response.body)
+    assert_equal storage_domain.id, available_storage_domains['results'].first.try(:[], 'id')
   end
 
   test "should associate hosts that match" do

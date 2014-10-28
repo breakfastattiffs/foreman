@@ -5,7 +5,7 @@ module Api
       include Api::Version2
       include Api::TaxonomyScope
 
-      before_filter :find_resource, :only => %w{show update destroy}
+      before_filter :find_resource, :only => %w{show update destroy clone}
 
       api :GET, "/hostgroups/", N_("List all host groups")
       param :search, String, :desc => N_("filter results")
@@ -27,7 +27,7 @@ module Api
       end
 
       def_param_group :hostgroup do
-        param :hostgroup, Hash, :action_aware => true do
+        param :hostgroup, Hash, :required => true, :action_aware => true do
           param :name, String, :required => true
           param :parent_id, :number
           param :environment_id, :number
@@ -67,6 +67,25 @@ module Api
           render :json => {'message'=> _("Cannot delete group %{current} because it has nested groups.") % { :current => @hostgroup.title } }, :status => :conflict
         else
           process_response @hostgroup.destroy
+        end
+      end
+
+      api :POST, "/hostgroups/:id/clone", N_("Clone a host group")
+      param :name, String, :required => true
+
+      def clone
+        @hostgroup = @hostgroup.clone(params[:name])
+        process_response @hostgroup.save
+      end
+
+      private
+
+      def action_permission
+        case params[:action]
+          when 'clone'
+            'create'
+          else
+            super
         end
       end
 

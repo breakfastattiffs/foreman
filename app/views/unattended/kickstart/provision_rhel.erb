@@ -18,7 +18,7 @@ oses:
 %>
 install
 <%= @mediapath %><%= proxy_string %>
-lang en_US.UTF-8
+lang <%= @host.params['lang'] || 'en_US.UTF-8' %>
 selinux --enforcing
 keyboard us
 skipx
@@ -57,18 +57,15 @@ key --skip
 text
 reboot
 
-%packages --ignoremissing
+%packages
 yum
 dhclient
 ntp
 wget
 @Core
 epel-release
-<% if puppet_enabled %>
-puppet
-<% if @host.params['enable-puppetlabs-repo'] && @host.params['enable-puppetlabs-repo'] == 'true' -%>
+<% if puppet_enabled && @host.params['enable-puppetlabs-repo'] && @host.params['enable-puppetlabs-repo'] == 'true' -%>
 puppetlabs-release
-<% end -%>
 <% end -%>
 <% if salt_enabled %>
 salt-minion
@@ -132,6 +129,8 @@ cat > /etc/salt/minion << EOF
 EOF
 # Setup salt-minion to run on system reboot
 /sbin/chkconfig --level 345 salt-minion on
+# Running salt-call to trigger key signing
+salt-call --no-color --grains >/dev/null
 <% end -%>
 
 sync

@@ -5,7 +5,7 @@ class Hostgroup < ActiveRecord::Base
   include NestedAncestryCommon
   include ScopedSearchExtensions
 
-  validates_lengths_from_database
+  validates_lengths_from_database :except => [:name]
   before_destroy EnsureNotUsedBy.new(:hosts)
   has_many :hostgroup_classes, :dependent => :destroy
   has_many :puppetclasses, :through => :hostgroup_classes
@@ -13,6 +13,7 @@ class Hostgroup < ActiveRecord::Base
   has_many :users, :through => :user_hostgroups
   validates :name, :format => { :with => /\A(\S+\s?)+\Z/, :message => N_("can't contain trailing white spaces.")}
   validates :root_pass, :allow_blank => true, :length => {:minimum => 8, :message => _('should be 8 characters or more')}
+  validate :title_and_lookup_key_length
   has_many :group_parameters, :dependent => :destroy, :foreign_key => :reference_id
   accepts_nested_attributes_for :group_parameters, :allow_destroy => true
   has_many_hosts
@@ -20,6 +21,7 @@ class Hostgroup < ActiveRecord::Base
   has_many :config_templates, :through => :template_combinations
   before_save :remove_duplicated_nested_class
 
+  alias_attribute :arch, :architecture
   alias_attribute :os, :operatingsystem
   has_many :trends, :as => :trendable, :class_name => "ForemanTrend"
 
@@ -75,7 +77,8 @@ class Hostgroup < ActiveRecord::Base
   class Jail < Safemode::Jail
     allow :name, :diskLayout, :puppetmaster, :operatingsystem, :architecture,
       :environment, :ptable, :url_for_boot, :params, :puppetproxy, :param_true?,
-      :param_false?
+      :param_false?, :puppet_ca_server, :indent, :os, :arch, :domain, :subnet,
+      :realm
   end
 
   #TODO: add a method that returns the valid os for a hostgroup
@@ -125,9 +128,31 @@ class Hostgroup < ActiveRecord::Base
     # otherwise we might be overwriting the hash in the wrong order.
     groups = ids.size == 1 ? [self] : Hostgroup.includes(:group_parameters).sort_by_ancestry(Hostgroup.find(ids))
     groups.each do |hg|
-      hg.group_parameters.each {|p| hash[p.name] = include_source ? {:value => p.value, :source => N_('hostgroup').to_sym, :source_name => hg.title} : p.value }
-    end
+      hg.group_parameters.each {|p| hash[p.name] = include_source ? {:value => p.value, :source => N_('hostgroup').to_sym, :safe_value => p.safe_value, :source_name => hg.title} : p.value }
+   end
+
     hash
+  end
+
+  def global_parameters
+    Hostgroup.includes(:group_parameters).sort_by_ancestry(Hostgroup.find(ancestor_ids + id)).map(&:group_parameters).uniq
+  end
+
+  def inherited_params(include_source = false)
+    # same method in Host, similar method below
+    hp = {}
+    # read common parameters
+    CommonParameter.all.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('common').to_sym} : p.value] }
+    # read organization and location parameters
+    hp.update organization.parameters(include_source) if SETTINGS[:organizations_enabled] && organization
+    hp.update location.parameters(include_source)     if SETTINGS[:locations_enabled] && location
+    # read domain parameters
+    domain.domain_parameters.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('domain').to_sym} : p.value] } unless domain.nil?
+    # read OS parameters
+    operatingsystem.os_parameters.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('os').to_sym} : p.value] } unless operatingsystem.nil?
+    # read group parameters only if a host belongs to a group
+    hp.update hostgroup.parameters(include_source) if hostgroup
+    hp
   end
 
   def params
@@ -144,6 +169,18 @@ class Hostgroup < ActiveRecord::Base
   # no need to store anything in the db if the password is our default
   def root_pass
     read_attribute(:root_pass) || nested_root_pw || Setting[:root_pass]
+  end
+
+  # Clone the hostgroup
+  def clone(name = "")
+    new = self.dup
+    new.name = name
+    new.puppetclasses = puppetclasses
+    new.locations     = locations
+    new.organizations = organizations
+    # Clone any parameters as well
+    self.group_parameters.each{|param| new.group_parameters << param.clone}
+    new
   end
 
   private
@@ -167,6 +204,13 @@ class Hostgroup < ActiveRecord::Base
   def used_taxonomy_ids(type)
     return [] if new_record? && parent_id.blank?
     Host::Base.where(:hostgroup_id => self.path_ids).pluck(type).compact.uniq
+  end
+
+  def title_and_lookup_key_length
+    max_length_for_name = self.send(:obj_type).length + 1
+    max_length_for_name += parent.title.length unless parent.nil?
+
+    errors.add(:name, _("maximum for this name is %s characters") % (255 - max_length_for_name)) if 255 - (name.length + max_length_for_name) < 0
   end
 
 end

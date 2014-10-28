@@ -14,6 +14,7 @@
 //= require jquery.multi-select
 //= require settings
 //= require jquery.gridster
+//= require hidden_values
 
 $(document).on('ContentLoad', function(){onContentLoad()});
 
@@ -23,7 +24,7 @@ $(function() {
 
 function onContentLoad(){
   if($('.autocomplete-clear').size() == 0){
-    $('.autocomplete-input').scopedSearch();
+    $('.autocomplete-input').scopedSearch({'delay': 250});
     $('.ui-helper-hidden-accessible').remove();
   }
 
@@ -316,7 +317,12 @@ function update_puppetclasses(element) {
   var env_id = $('*[id*=environment_id]').val();
   var url = $(element).attr('data-url');
   var data = $("form").serialize().replace('method=put', 'method=post');
-  data = data + '&host_id=' + host_id
+  if (url.match('hostgroups')) {
+    data = data + '&hostgroup_id=' + host_id
+  } else {
+    data = data + '&host_id=' + host_id
+  }
+
   if (env_id == "") return;
   $(element).indicator_show();
   $.ajax({

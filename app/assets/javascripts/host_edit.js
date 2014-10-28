@@ -1,6 +1,6 @@
 $(document).on('ContentLoad', function(){onHostEditLoad()});
 $(document).on('AddedClass', function(event, link){load_puppet_class_parameters(link)});
-$(document).on('click', '#params-tab', function() { resizeTextareaAll(); });
+$(document).on('click', '#params-tab', function() { resizeTextareas($('#params')); });
 
 function computeResourceSelected(item){
   var compute = $(item).val();
@@ -152,7 +152,11 @@ function load_puppet_class_parameters(item) {
   if ($('[id^="#puppetclass_' + id + '_params\\["]').length > 0) return; // already loaded
   var url = $(item).attr('data-url');
   var data = $("form").serialize().replace('method=put', 'method=post');
-  data = data + '&host_id=' + host_id
+  if (url.match('hostgroups')) {
+    data = data + '&hostgroup_id=' + host_id
+  } else {
+    data = data + '&host_id=' + host_id
+  }
 
   if (url == undefined) return; // no parameters
   var placeholder = $('<tr id="puppetclass_'+id+'_params_loading">'+
@@ -177,6 +181,8 @@ function hostgroup_changed(element) {
   if (host_id) {
     if (host_changed ){
       update_form(element,{data:"&host[id]="+host_id});
+    } else if (host_changed == undefined) { // hostgroup changes parent
+      update_form(element);
     } else { // edit host
       update_puppetclasses(element);
       reload_host_params();
@@ -205,9 +211,10 @@ function update_form(element, options) {
     type: 'post',
     url: url,
     data: data,
-    complete: function(){  $(element).indicator_hide();},
+    complete: function(){ $(element).indicator_hide(); },
     success: function(response) {
       $('form').replaceWith(response);
+      multiSelectOnLoad();
       $("[id$='subnet_id']").first().change();
       // to handle case if def process_taxonomy changed compute_resource_id to nil
       if( !$('#host_compute_resource_id').val() ) {
@@ -392,12 +399,13 @@ function use_image_selected(element){
 function override_param(item){
   var param = $(item).closest('tr');
   var n = param.find('[id^=name_]').text();
-  var v = param.find('[id^=value_]').val();
+  var param_value = param.find('[id^=value_]');
+  var v = param_value.val();
 
   $('#parameters').find('.btn-success').click();
-  var new_param = param.closest('.tab-pane').find('[id*=host_host_parameters]:visible').last().parent().parent();
+  var new_param = param.closest('.tab-pane').find('td.col-md-6 [id*=host_host_parameters]:visible').parent().parent().last();
   new_param.find('[id$=_name]').val(n);
-  new_param.find('[id$=_value]').val(v);
+  new_param.find('td.col-md-6 [id$=_value]').val(v == param_value.data('hidden-value') ? '' : v);
   mark_params_override();
 }
 
@@ -423,7 +431,12 @@ function reload_host_params(){
   var host_id = $("form").data('id');
   var url = $('#params-tab').data('url');
   var data = $("[data-submit='progress_bar']").serialize().replace('method=put', 'method=post');
-  data = data + '&host_id=' + host_id;
+  if (url.match('hostgroups')) {
+    var parent_id = $('#hostgroup_parent_id').val()
+    data = data + '&hostgroup_id=' + host_id + '&hostgroup_parent_id=' + parent_id
+  } else {
+    data = data + '&host_id=' + host_id
+  }
   load_with_placeholder('inherited_parameters', url, data)
 }
 
@@ -431,7 +444,11 @@ function reload_puppetclass_params(){
   var host_id = $("form").data('id');
   var url2 = $('#params-tab').data('url2');
   var data = $("[data-submit='progress_bar']").serialize().replace('method=put', 'method=post');
-  data = data + '&host_id=' + host_id
+  if (url2.match('hostgroups')) {
+    data = data + '&hostgroup_id=' + host_id
+  } else {
+    data = data + '&host_id=' + host_id
+  }
   load_with_placeholder('inherited_puppetclasses_parameters', url2, data)
 }
 
@@ -518,10 +535,6 @@ function interface_domain_selected(element) {
   var subnet_options = $(element).parentsUntil('.fields').parent().find('[id$=_subnet_id]').empty();
 
   subnet_options.attr('disabled', true);
-  if (domain_id == '') {
-    subnet_options.append($("<option />").val(null).text(__('No subnets')));
-    return false;
-  }
 
   $(element).indicator_show();
 
@@ -531,7 +544,7 @@ function interface_domain_selected(element) {
   var loc = $('#host_location_id :selected').val();
 
   $.ajax({
-    data:{domain_id: domain_id, organization_id:org, location_id: loc},
+    data:{domain_id: domain_id, organization_id:org, location_id: loc, interface: true},
     type:'post',
     url:url,
     dataType:'json',
@@ -600,17 +613,14 @@ function interface_subnet_selected(element) {
 }
 
 function interface_type_selected(element) {
+  var fieldset = $(element).closest("fieldset");
 
-  var type = $(element).find('option:selected').text();
-  var bmc_fields = $(element).parentsUntil('.fields').parent().find('#bmc_fields')
-  if (type == 'BMC') {
-    bmc_fields.find("input:disabled").prop('disabled',false);
-    bmc_fields.removeClass("hide");
-  } else {
-    bmc_fields.find("input").prop('disabled',true);
-    bmc_fields.addClass("hide");
-  }
-
+  $.ajax({
+    data: fieldset.serialize(),
+    type: 'GET',
+    url: fieldset.attr('data-url'),
+    dataType: 'script'
+  });
 }
 
 function disable_vm_form_fields() {
@@ -621,11 +631,11 @@ function disable_vm_form_fields() {
   $("a.disable-unsupported").remove();
 }
 
-function resizeTextareaAll () {
-  $('textarea').each(function() {
+function resizeTextareas (elem) {
+  elem.find('textarea').each(function() {
     if (this.scrollHeight !== undefined){
       if (this.scrollHeight <= 100){
-        this.style.height = this.scrollHeight+ 'px';
+        this.style.height = this.scrollHeight+parseInt(this.style.paddingTop)+parseInt(this.style.paddingBottom)+ 'px';
       }
       else{
         this.style.height = 100+'px';

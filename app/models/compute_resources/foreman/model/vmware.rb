@@ -43,8 +43,20 @@ module Foreman::Model
       client.datacenters.all
     end
 
+    def cluster(cluster)
+      dc.clusters.get(cluster)
+    end
+
     def clusters
       dc.clusters
+    end
+
+    def datastores(opts ={})
+      if opts[:storage_domain]
+        dc.datastores.get(opts[:storage_domain])
+      else
+        dc.datastores.all(:accessible => true)
+      end
     end
 
     def folders
@@ -55,16 +67,29 @@ module Foreman::Model
       dc.networks.all(:accessible => true)
     end
 
+    def resource_pools(opts ={})
+      cluster = cluster(opts[:cluster_id])
+      cluster.resource_pools.all(:accessible => true)
+    end
+
     def available_clusters
       clusters
+    end
+
+    def available_folders
+      folders
     end
 
     def available_networks(cluster_id=nil)
       networks
     end
 
-    def available_storage_domains
-      datastores
+    def available_storage_domains(storage_domain=nil)
+      datastores({:storage_domain => storage_domain})
+    end
+
+    def available_resource_pools(opts={})
+      resource_pools({ :cluster_id => opts[:cluster_id] })
     end
 
     def nictypes
@@ -234,10 +259,6 @@ module Foreman::Model
         'vmx-07' => '7 (ESX/ESXi 4.x)',
         'vmx-04' => '4 (ESX/ESXi 3.5)',
       }
-    end
-
-    def datastores
-      dc.datastores.all(:accessible => true)
     end
 
     def test_connection options = {}

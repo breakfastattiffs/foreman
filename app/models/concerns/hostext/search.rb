@@ -15,7 +15,7 @@ module Hostext
       scoped_search :on => :enabled,       :complete_value => {:true => true, :false => false}, :rename => :'status.enabled'
       scoped_search :on => :managed,       :complete_value => {:true => true, :false => false}
       scoped_search :on => :owner_type,    :complete_value => true, :only_explicit => true
-      scoped_search :on => :owner_id,      :complete_value => true, :only_explicit => true
+      scoped_search :on => :owner_id,      :complete_value => false, :only_explicit => true, :complete_enabled => false
       scoped_search :on => :puppet_status, :offset => 0, :word_size => Report::BIT_NUM*4, :complete_value => {:true => true, :false => false}, :rename => :'status.interesting'
       scoped_search :on => :puppet_status, :offset => Report::METRIC.index("applied"),         :word_size => Report::BIT_NUM, :rename => :'status.applied'
       scoped_search :on => :puppet_status, :offset => Report::METRIC.index("restarted"),       :word_size => Report::BIT_NUM, :rename => :'status.restarted'
@@ -71,7 +71,7 @@ module Hostext
       end
 
       if SETTINGS[:login]
-        scoped_search :in => :search_users, :on => :login,     :complete_value => true, :only_explicit => true, :rename => :'user.login',    :operators => ['= ', '~ '], :ext_method => :search_by_user
+        scoped_search :in => :search_users, :on => :login,     :complete_value => true, :only_explicit => true, :rename => :'user.login',    :operators => ['= ', '~ '], :ext_method => :search_by_user, :alias => :owner
         scoped_search :in => :search_users, :on => :firstname, :complete_value => true, :only_explicit => true, :rename => :'user.firstname',:operators => ['= ', '~ '], :ext_method => :search_by_user
         scoped_search :in => :search_users, :on => :lastname,  :complete_value => true, :only_explicit => true, :rename => :'user.lastname', :operators => ['= ', '~ '], :ext_method => :search_by_user
         scoped_search :in => :search_users, :on => :mail,      :complete_value => true, :only_explicit => true, :rename => :'user.mail',     :operators => ['= ', '~ '], :ext_method => :search_by_user
@@ -81,7 +81,14 @@ module Hostext
     module ClassMethods
 
       def search_by_user(key, operator, value)
-        key_name = User.connection.quote_column_name(key.sub(/^.*\./,''))
+        clean_key = key.sub(/^.*\./,'')
+        if value == "current_user"
+          value = User.current.id
+          clean_key = "id"
+        elsif key == "owner"
+          clean_key = "login"
+        end
+        key_name = User.connection.quote_column_name(clean_key)
         condition = sanitize_sql_for_conditions(["#{key_name} #{operator} ?", value_to_sql(operator, value)])
         users = User.all(:conditions => condition)
         hosts = users.map(&:hosts).flatten
@@ -92,7 +99,7 @@ module Hostext
 
       def search_by_puppetclass(key, operator, value)
         conditions    = sanitize_sql_for_conditions(["puppetclasses.name #{operator} ?", value_to_sql(operator, value)])
-        config_group_ids = ConfigGroup.where(conditions).joins(:puppetclasses).pluck(:id)
+        config_group_ids = ConfigGroup.where(conditions).joins(:puppetclasses).pluck('config_groups.id')
         host_ids         = Host.authorized(:view_hosts, Host).where(conditions).joins(:puppetclasses).uniq.map(&:id)
         host_ids        += HostConfigGroup.where(:host_type => 'Host::Base').where(:config_group_id => config_group_ids).pluck(:host_id)
         hostgroups       = Hostgroup.unscoped.with_taxonomy_scope.where(conditions).joins(:puppetclasses)

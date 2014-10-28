@@ -371,7 +371,6 @@ class HostsControllerTest < ActionController::TestCase
 
   test "if only authorize_login_delegation is set, REMOTE_USER should be
         ignored for API requests" do
-    Setting[:signo_sso] = false
     Setting[:authorize_login_delegation] = true
     Setting[:authorize_login_delegation_api] = false
     set_remote_user_to users(:admin)
@@ -385,7 +384,6 @@ class HostsControllerTest < ActionController::TestCase
 
   test "if both authorize_login_delegation{,_api} are unset,
         REMOTE_USER should ignored in all cases" do
-    Setting[:signo_sso] = false
     Setting[:authorize_login_delegation] = false
     Setting[:authorize_login_delegation_api] = false
     set_remote_user_to users(:admin)
@@ -481,6 +479,34 @@ class HostsControllerTest < ActionController::TestCase
 
     @request.env['HTTPS'] = 'on'
     @request.env['SSL_CLIENT_S_DN'] = 'CN=else.where'
+    @request.env['SSL_CLIENT_VERIFY'] = 'SUCCESS'
+    Resolv.any_instance.stubs(:getnames).returns(['else.where'])
+    get :externalNodes, {:name => @host.name, :format => "yml"}
+    assert_response :success
+  end
+
+  test 'hosts with comma-separated SSL DN should get externalNodes successfully' do
+    User.current = nil
+    Setting[:restrict_registered_puppetmasters] = true
+    Setting[:require_ssl_puppetmasters] = true
+    Setting[:trusted_puppetmaster_hosts] = ['foreman.example']
+
+    @request.env['HTTPS'] = 'on'
+    @request.env['SSL_CLIENT_S_DN'] = 'CN=foreman.example,OU=PUPPET,O=FOREMAN,ST=North Carolina,C=US'
+    @request.env['SSL_CLIENT_VERIFY'] = 'SUCCESS'
+    Resolv.any_instance.stubs(:getnames).returns(['else.where'])
+    get :externalNodes, {:name => @host.name, :format => "yml"}
+    assert_response :success
+  end
+
+  test 'hosts with slash-separated SSL DN should get externalNodes successfully' do
+    User.current = nil
+    Setting[:restrict_registered_puppetmasters] = true
+    Setting[:require_ssl_puppetmasters] = true
+    Setting[:trusted_puppetmaster_hosts] = ['foreman.linux.lab.local']
+
+    @request.env['HTTPS'] = 'on'
+    @request.env['SSL_CLIENT_S_DN'] = '/C=US/ST=NC/L=City/O=Example/OU=IT/CN=foreman.linux.lab.local/emailAddress=user@example.com'
     @request.env['SSL_CLIENT_VERIFY'] = 'SUCCESS'
     Resolv.any_instance.stubs(:getnames).returns(['else.where'])
     get :externalNodes, {:name => @host.name, :format => "yml"}
@@ -732,16 +758,20 @@ class HostsControllerTest < ActionController::TestCase
     hosts = YAML.load(@response.body)
     assert_not_empty hosts
     host = Host.first
-    assert_equal host.os.name, hosts[host.name]["osName"]  # rundeck-specific field
+    unless (host.nil? || host.name.nil? || hosts.nil? || hosts[host.name].nil?)
+      assert_equal host.os.name, hosts[host.name]["osName"] # rundeck-specific field
+    end
   end
 
   test "show returns YAML output for rundeck" do
     host = Host.first
     get :show, {:id => host.to_param, :format => 'yaml', :rundeck => true}, set_session_user
     yaml = YAML.load(@response.body)
-    assert_kind_of Hash, yaml[host.name]
-    assert_equal host.name, yaml[host.name]["hostname"]
-    assert_equal host.os.name, yaml[host.name]["osName"]  # rundeck-specific field
+    unless (host.nil? || host.name.nil? || host.os.nil?)
+      assert_kind_of Hash, yaml[host.name]
+      assert_equal host.name, yaml[host.name]["hostname"]
+      assert_equal host.os.name, yaml[host.name]["osName"]  # rundeck-specific field
+    end
   end
 
   test "#disassociate shows error when used on non-CR host" do

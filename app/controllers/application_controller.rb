@@ -17,8 +17,8 @@ class ApplicationController < ActionController::Base
   before_filter :set_gettext_locale_db, :set_gettext_locale
   before_filter :session_expiry, :update_activity_time, :unless => proc {|c| !SETTINGS[:login] || c.remote_user_provided? || c.api_request? }
   before_filter :set_taxonomy, :require_mail, :check_empty_taxonomy
-  before_filter :welcome, :only => :index, :unless => :api_request?
   before_filter :authorize
+  before_filter :welcome, :only => :index, :unless => :api_request?
   layout :display_layout?
 
   attr_reader :original_search_parameter
@@ -370,6 +370,24 @@ class ApplicationController < ActionController::Base
 
   def errors_hash errors
     errors.any? ? {:status => N_("Error"), :message => errors.full_messages.join('<br>')} : {:status => N_("OK"), :message =>""}
+  end
+
+  def taxonomy_scope
+    if params[controller_name.singularize.to_sym]
+      @organization = Organization.find_by_id(params[controller_name.singularize.to_sym][:organization_id])
+      @location     = Location.find_by_id(params[controller_name.singularize.to_sym][:location_id])
+    end
+
+    if instance_variable_get("@#{controller_name}").present?
+      @organization ||= instance_variable_get("@#{controller_name}").organization
+      @location     ||= instance_variable_get("@#{controller_name}").location
+    end
+
+    @organization ||= Organization.find_by_id(params[:organization_id]) if params[:organization_id]
+    @location     ||= Location.find_by_id(params[:location_id])         if params[:location_id]
+
+    @organization ||= Organization.current if SETTINGS[:organizations_enabled]
+    @location     ||= Location.current if SETTINGS[:locations_enabled]
   end
 
   def two_pane?

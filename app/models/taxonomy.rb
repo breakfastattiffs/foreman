@@ -31,6 +31,14 @@ class Taxonomy < ActiveRecord::Base
 
   default_scope lambda { order(:title) }
 
+  scope :completer_scope, lambda{|opts|
+    if opts[:controller] == 'organizations'
+      Organization.completer_scope opts
+    elsif opts[:controller] == 'locations'
+      Location.completer_scope opts
+    end
+  }
+
   def self.locations_enabled
     enabled?(:location)
   end
@@ -125,7 +133,7 @@ class Taxonomy < ActiveRecord::Base
   end
 
   def expire_topbar_cache(sweeper)
-    users.each { |u| u.expire_topbar_cache(sweeper) }
+    (users+User.only_admin).each { |u| u.expire_topbar_cache(sweeper) }
   end
 
   private

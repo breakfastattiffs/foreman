@@ -5,6 +5,7 @@ class User < ActiveRecord::Base
   include Authorizable
   include Foreman::ThreadSession::UserModel
   include Taxonomix
+  include DirtyAssociations
   audited :except => [:last_login_on, :password, :password_hash, :password_salt, :password_confirmation], :allow_mass_assignment => true
   self.auditing_enabled = !Foreman.in_rake?('db:migrate')
 
@@ -106,6 +107,8 @@ class User < ActiveRecord::Base
       order('firstname')
     end
   }
+
+  dirty_has_many_associations :roles
 
   def can?(permission, subject = nil)
     if self.admin?
@@ -317,22 +320,6 @@ class User < ActiveRecord::Base
     self.admin?
   end
 
-  def role_ids_with_change_detection=(roles)
-    roles ||= [] # in API, role_ids is converted to nil if user sent empty array
-    @role_ids_changed = roles.uniq.select(&:present?).map(&:to_i).sort != role_ids.sort
-    @role_ids_was = role_ids.clone
-    self.role_ids_without_change_detection = roles
-  end
-  alias_method_chain(:role_ids=, :change_detection)
-
-  def role_ids_changed?
-    @role_ids_changed
-  end
-
-  def role_ids_was
-    @role_ids_was ||= role_ids
-  end
-
   def editing_self?(options = {})
     options[:controller].to_s == 'users' &&
       options[:action] =~ /edit|update/ &&
@@ -404,7 +391,7 @@ class User < ActiveRecord::Base
       # The default user can't auto create users, we need to change to Admin for this to work
       User.as_anonymous_admin do
         if user.save
-          AuthSource.find(attrs[:auth_source_id]).update_usergroups(login)
+          AuthSource.find(attrs[:auth_source_id]).update_usergroups(login, password)
           logger.info "User '#{user.login}' auto-created from #{user.auth_source}"
         else
           logger.info "Failed to save User '#{user.login}' #{user.errors.full_messages}"
@@ -479,14 +466,14 @@ class User < ActiveRecord::Base
   def ensure_roles_not_escalated
     roles_check = self.new_record? ? self.role_ids.present? : self.role_ids_changed?
     if roles_check && !User.current.can_assign?(self.role_ids)
-      errors.add :role_ids, _("You can't assign some of roles you selected")
+      errors.add :role_ids, _("you can't assign some of roles you selected")
     end
   end
 
   def ensure_admin_not_escalated
     admin_check = self.new_record? ? self.admin? : self.admin_changed?
     if admin_check && !User.current.can_change_admin_flag?
-      errors.add :admin, _("You can't change Administrator flag")
+      errors.add :admin, _("you can't change administrator flag")
     end
   end
 
@@ -499,13 +486,13 @@ class User < ActiveRecord::Base
 
   def default_location_inclusion
     unless locations.include?(default_location) || default_location.blank? || self.admin?
-      errors.add :default_location, _("Default locations need to be user locations first")
+      errors.add :default_location, _("default locations need to be user locations first")
     end
   end
 
   def default_organization_inclusion
     unless organizations.include?(default_organization) || default_organization.blank? || self.admin?
-      errors.add :default_organization, _("Default organizations need to be user organizations first")
+      errors.add :default_organization, _("default organizations need to be user organizations first")
     end
   end
 

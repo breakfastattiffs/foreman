@@ -147,6 +147,8 @@ Foreman::Application.routes.draw do
       post 'use_image_selected'
       post 'medium_selected'
       post 'process_hostgroup'
+      post 'current_parameters'
+      post 'puppetclass_parameters'
     end
   end
 
@@ -398,5 +400,7 @@ Foreman::Application.routes.draw do
 
   resources :about, :only => :index do
   end
+
+  resources :interfaces, :only => :new
 
 end

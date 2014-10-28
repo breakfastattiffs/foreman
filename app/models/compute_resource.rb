@@ -26,6 +26,7 @@ class ComputeResource < ActiveRecord::Base
   has_and_belongs_to_many :users, :join_table => "user_compute_resources"
   validates :name, :presence => true, :uniqueness => true,
             :format => { :with => /\A(\S+)\Z/, :message => N_("can't contain white spaces.") }
+  validate :ensure_provider_not_changed, :on => :update
   validates :provider, :presence => true, :inclusion => { :in => proc { self.providers } }
   validates :url, :presence => true
   scoped_search :on => :name, :complete_value => :true
@@ -166,7 +167,8 @@ class ComputeResource < ActiveRecord::Base
     if self.class.providers.include? value
       self.type = self.class.provider_class(value)
     else
-      raise ::Foreman::Exception.new N_("unknown provider")
+      self.type = value #this will trigger validation error since value is one of supported_providers
+      logger.debug("unknown provider for compute resource")
     end
   end
 
@@ -210,7 +212,15 @@ class ComputeResource < ActiveRecord::Base
     raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
   end
 
-  def available_storage_domains
+  def available_folders
+    raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
+  end
+
+  def available_resource_pools
+    raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
+  end
+
+  def available_storage_domains(storage_domain=nil)
     raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
   end
 
@@ -229,6 +239,10 @@ class ComputeResource < ActiveRecord::Base
   def vm_compute_attributes_for(uuid)
     vm = find_vm_by_uuid(uuid)
     vm.attributes.reject{|k,v| k == :id }
+  end
+
+  def user_data_supported?
+    false
   end
 
   protected
@@ -267,6 +281,12 @@ class ComputeResource < ActiveRecord::Base
 
   def set_attributes_hash
     self.attrs ||= {}
+  end
+
+  def ensure_provider_not_changed
+    if self.type_changed?
+      errors.add(:provider, _("cannot be changed"))
+    end
   end
 
 end

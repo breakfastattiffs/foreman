@@ -11,8 +11,6 @@ class Host::Managed < Host::Base
   has_many :host_parameters, :dependent => :destroy, :foreign_key => :reference_id
   has_many :parameters, :dependent => :destroy, :foreign_key => :reference_id, :class_name => "HostParameter"
   accepts_nested_attributes_for :host_parameters, :allow_destroy => true
-  has_many :interfaces, :dependent => :destroy, :inverse_of => :host, :class_name => 'Nic::Base', :foreign_key => :host_id
-  accepts_nested_attributes_for :interfaces, :reject_if => lambda { |a| a[:mac].blank? }, :allow_destroy => true
   belongs_to :owner, :polymorphic => true
   belongs_to :compute_resource
   belongs_to :image
@@ -21,6 +19,13 @@ class Host::Managed < Host::Base
   belongs_to :organization
 
   has_one :token, :foreign_key => :host_id, :dependent => :destroy
+
+  def self.complete_for(query, opts = {})
+    matcher = /(((user\.[a-z]+)|owner)\s*[=~])\s*\S+\s*\z/
+    output = super(query)
+    output << output.last.sub(matcher,'\1 current_user') if not output.empty? and output.last =~ matcher
+    output
+  end
 
   # Define custom hook that can be called in model by magic methods (before, after, around)
   define_model_callbacks :build, :only => :after
@@ -49,7 +54,8 @@ class Host::Managed < Host::Base
     allow :name, :diskLayout, :puppetmaster, :puppet_ca_server, :operatingsystem, :os, :environment, :ptable, :hostgroup, :location,
       :organization, :url_for_boot, :params, :info, :hostgroup, :compute_resource, :domain, :ip, :mac, :shortname, :architecture,
       :model, :certname, :capabilities, :provider, :subnet, :token, :location, :organization, :provision_method,
-      :image_build?, :pxe_build?, :otp, :realm, :param_true?, :param_false?, :nil?, :indent
+      :image_build?, :pxe_build?, :otp, :realm, :param_true?, :param_false?, :nil?, :indent, :primary_interface, :interfaces,
+      :has_primary_interface?
   end
 
   attr_reader :cached_host_params
@@ -151,7 +157,7 @@ class Host::Managed < Host::Base
     validates :provision_method, :inclusion => {:in => PROVISION_METHODS, :message => N_('is unknown')}, :if => Proc.new {|host| host.managed?}
     validates :medium_id, :presence => true, :if => Proc.new { |host| host.validate_media? }
     validate :provision_method_in_capabilities
-    before_validation :set_compute_attributes, :only => :create
+    before_validation :set_compute_attributes, :on => :create
     validate :check_if_provision_method_changed, :on => :update, :if => Proc.new { |host| host.managed }
   end
 
@@ -391,14 +397,14 @@ class Host::Managed < Host::Base
   def host_inherited_params include_source = false
     hp = {}
     # read common parameters
-    CommonParameter.all.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('common').to_sym} : p.value] }
+    CommonParameter.all.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('common').to_sym, :safe_value => p.safe_value} : p.value] }
     # read organization and location parameters
     hp.update organization.parameters(include_source) if SETTINGS[:organizations_enabled] && organization
     hp.update location.parameters(include_source)     if SETTINGS[:locations_enabled] && location
     # read domain parameters
-    domain.domain_parameters.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('domain').to_sym, :source_name => domain.name} : p.value] } unless domain.nil?
+    domain.domain_parameters.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('domain').to_sym, :safe_value => p.safe_value, :source_name => domain.name} : p.value] } unless domain.nil?
     # read OS parameters
-    operatingsystem.os_parameters.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('os').to_sym, :source_name => operatingsystem.to_label} : p.value] } unless operatingsystem.nil?
+    operatingsystem.os_parameters.each {|p| hp.update Hash[p.name => include_source ? {:value => p.value, :source => N_('os').to_sym, :safe_value => p.safe_value, :source_name => operatingsystem.to_label} : p.value] } unless operatingsystem.nil?
     # read group parameters only if a host belongs to a group
     hp.update hostgroup.parameters(include_source) if hostgroup
     hp
@@ -602,15 +608,6 @@ class Host::Managed < Host::Base
   rescue => e
     errors.add(:base, _("failed to execute puppetrun: %s") % e)
     false
-  end
-
-  def overwrite?
-    @overwrite ||= false
-  end
-
-  # We have to coerce the value back to boolean. It is not done for us by the framework.
-  def overwrite=(value)
-    @overwrite = value == "true"
   end
 
   def require_ip_validation?

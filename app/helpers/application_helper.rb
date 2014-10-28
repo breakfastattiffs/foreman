@@ -45,12 +45,6 @@ module ApplicationHelper
     f.hidden_field(:_destroy) + link_to_function(icon_text("remove", name), "remove_fields(this)", options.merge(:title => _("Remove Parameter")))
   end
 
-  def trunc text, length
-    text = text.to_s
-    options = text.size > length ? {:'data-original-title'=>text, :rel=>'twipsy'} : {}
-    content_tag(:span, truncate(text, :length => length), options).html_safe
-  end
-
   # Creates a link to a javascript function that creates field entries for the association on the web page
   # +name+       : String containing links's text
   # +f+          : FormBuiler object
@@ -61,7 +55,7 @@ module ApplicationHelper
     fields = f.fields_for(association, new_object, :child_index => "new_#{association}") do |builder|
       render((partial.nil? ? association.to_s.singularize + "_fields" : partial), :f => builder)
     end
-    link_to_function(name, ("add_fields(this, \"#{association}\", \"#{escape_javascript(fields)}\")").html_safe, add_html_classes(options, "btn btn-success") )
+    link_to_function(name, ("add_fields(this, \"#{association}\", \"#{escape_javascript(fields)}\"); turn_textarea_switch();").html_safe, add_html_classes(options, "btn btn-success") )
   end
 
   def link_to_remove_puppetclass klass, host
